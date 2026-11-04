@@ -1,0 +1,335 @@
+// Datenmodell der Inti Klientenverwaltung.
+// Jede Klientenakte hängt an genau einem Standort; der Zugriff wird über die
+// Standort-Zuordnung der Nutzer gesteuert (siehe src/lib/zugriff.ts).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Rolle {
+  ADMIN
+  LEITUNG
+  FACHKRAFT
+  VERWALTUNG
+}
+
+enum KlientStatus {
+  ANFRAGE
+  AKTIV
+  RUHEND
+  ABGESCHLOSSEN
+}
+
+enum KontaktKategorie {
+  FAMILIE
+  HILFE
+  ARZT
+  THERAPIE
+  SOZIALAMT
+  SCHULE
+  SONSTIGE
+}
+
+enum Bereich {
+  KONTAKTE
+  MEDIZIN
+  EINGANG
+  SOZIALAMT
+  STUNDEN
+  THERAPIE
+  SONSTIGES
+  ZUR_ZUORDNUNG
+}
+
+enum DokumentStatus {
+  ENTWURF
+  ZUR_FREIGABE
+  FREIGEGEBEN
+}
+
+model Standort {
+  id        String           @id @default(cuid())
+  name      String           @unique
+  nutzer    NutzerStandort[]
+  klienten  Klient[]
+  termine   Termin[]
+  aufgaben  Aufgabe[]
+}
+
+model Nutzer {
+  id            String           @id @default(cuid())
+  email         String           @unique
+  name          String
+  passwortHash  String
+  rolle         Rolle            @default(FACHKRAFT)
+  aktiv         Boolean          @default(true)
+  standorte     NutzerStandort[]
+  sessions      Session[]
+  betreut       Klient[]         @relation("Bezugsbetreuer")
+  eintraege     Verlaufseintrag[]
+  dokumente     Dokument[]
+  termine       Termin[]
+  aufgaben      Aufgabe[]
+  protokoll     Zugriffsprotokoll[]
+  createdAt     DateTime         @default(now())
+}
+
+model NutzerStandort {
+  nutzerId   String
+  standortId String
+  nutzer     Nutzer   @relation(fields: [nutzerId], references: [id], onDelete: Cascade)
+  standort   Standort @relation(fields: [standortId], references: [id], onDelete: Cascade)
+
+  @@id([nutzerId, standortId])
+}
+
+// Gespeichert wird nur der SHA-256-Hash des Session-Tokens, nie das Token selbst.
+model Session {
+  tokenHash String   @id
+  nutzerId  String
+  nutzer    Nutzer   @relation(fields: [nutzerId], references: [id], onDelete: Cascade)
+  laeuftAb  DateTime
+  createdAt DateTime @default(now())
+
+  @@index([nutzerId])
+}
+
+model Klient {
+  id                String       @id @default(cuid())
+  nummer            String       @unique // K-0001, verbindet alle Importdateien
+  nachname          String
+  vorname           String
+  geburtsdatum      DateTime?    @db.Date
+  geschlecht        String?
+  strasse           String?
+  plz               String?
+  ort               String?
+  telefon           String?
+  email             String?
+  status            KlientStatus @default(AKTIV)
+  aufnahme          DateTime?    @db.Date
+  ende              DateTime?    @db.Date
+  leistung          String?
+  schuleEinrichtung String?
+  standortId        String
+  standort          Standort     @relation(fields: [standortId], references: [id])
+  bezugsbetreuerId  String?
+  bezugsbetreuer    Nutzer?      @relation("Bezugsbetreuer", fields: [bezugsbetreuerId], references: [id])
+
+  kontakte          Kontakt[]
+  diagnosen         Diagnose[]
+  eingangsphase     Eingangsphase?
+  bewilligungen     Bewilligung[]
+  stunden           Stundennachweis[]
+  therapien         Therapie[]
+  eintraege         Verlaufseintrag[]
+  dokumente         Dokument[]
+  termine           Termin[]
+  aufgaben          Aufgabe[]
+  einwilligungen    Einwilligung[]
+
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@index([standortId, status])
+  @@index([nachname, vorname])
+}
+
+model Kontakt {
+  id                      String           @id @default(cuid())
+  klientId                String
+  klient                  Klient           @relation(fields: [klientId], references: [id], onDelete: Cascade)
+  kategorie               KontaktKategorie
+  rolle                   String
+  name                    String
+  organisation            String?
+  telefon                 String?
+  email                   String?
+  adresse                 String?
+  schweigepflichtEntbunden Boolean         @default(false)
+  entbundenBis            DateTime?        @db.Date
+  notiz                   String?
+
+  @@index([klientId])
+}
+
+model Diagnose {
+  id                String    @id @default(cuid())
+  klientId          String
+  klient            Klient    @relation(fields: [klientId], references: [id], onDelete: Cascade)
+  icd10             String?
+  bezeichnung       String
+  gesichert         Boolean   @default(true)
+  diagnostiziertAm  DateTime? @db.Date
+  diagnostiziertVon String?
+  dokumentId        String?
+  dokument          Dokument? @relation(fields: [dokumentId], references: [id])
+
+  @@index([klientId])
+}
+
+model Eingangsphase {
+  id                 String    @id @default(cuid())
+  klientId           String    @unique
+  klient             Klient    @relation(fields: [klientId], references: [id], onDelete: Cascade)
+  anfrageDatum       DateTime? @db.Date
+  anfrageVon         String?
+  erstgespraechDatum DateTime? @db.Date
+  hospitationDatum   DateTime? @db.Date
+  entscheidung       String?
+  entscheidungDatum  DateTime? @db.Date
+  startdatum         DateTime? @db.Date
+  notiz              String?
+}
+
+model Bewilligung {
+  id              String    @id @default(cuid())
+  klientId        String
+  klient          Klient    @relation(fields: [klientId], references: [id], onDelete: Cascade)
+  kostentraeger   String
+  aktenzeichen    String?
+  sachbearbeitung String?
+  telefon         String?
+  leistung        String?
+  bescheidDatum   DateTime? @db.Date
+  von             DateTime  @db.Date
+  bis             DateTime  @db.Date
+  stundenProWoche Decimal?  @db.Decimal(5, 2)
+  stundensatzEur  Decimal?  @db.Decimal(8, 2)
+
+  @@index([klientId, bis])
+}
+
+model Stundennachweis {
+  id           String   @id @default(cuid())
+  klientId     String
+  klient       Klient   @relation(fields: [klientId], references: [id], onDelete: Cascade)
+  datum        DateTime @db.Date
+  beginn       String   // HH:MM
+  ende         String   // HH:MM
+  stunden      Decimal  @db.Decimal(5, 2)
+  mitarbeiter  String
+  leistungsart String?
+  bemerkung    String?
+  bestaetigtVon String?
+
+  @@index([klientId, datum])
+}
+
+model Therapie {
+  id            String    @id @default(cuid())
+  klientId      String
+  klient        Klient    @relation(fields: [klientId], references: [id], onDelete: Cascade)
+  art           String
+  therapeut     String?
+  praxis        String?
+  telefon       String?
+  beginn        DateTime? @db.Date
+  ende          DateTime? @db.Date
+  frequenz      String?
+  verordnungBis DateTime? @db.Date
+  notiz         String?
+
+  @@index([klientId])
+}
+
+model Verlaufseintrag {
+  id       String   @id @default(cuid())
+  klientId String
+  klient   Klient   @relation(fields: [klientId], references: [id], onDelete: Cascade)
+  autorId  String
+  autor    Nutzer   @relation(fields: [autorId], references: [id])
+  datum    DateTime @default(now())
+  art      String
+  text     String
+
+  @@index([klientId, datum])
+}
+
+model Dokument {
+  id               String         @id @default(cuid())
+  klientId         String
+  klient           Klient         @relation(fields: [klientId], references: [id], onDelete: Cascade)
+  bereich          Bereich
+  titel            String
+  dateiname        String
+  mimeType         String
+  groesse          Int
+  speicherPfad     String         // Schlüssel im verschlüsselten Dateispeicher
+  sha256           String
+  datum            DateTime?      @db.Date
+  status           DokumentStatus @default(FREIGEGEBEN)
+  aufbewahrenBis   DateTime?      @db.Date
+  hochgeladenVonId String
+  hochgeladenVon   Nutzer         @relation(fields: [hochgeladenVonId], references: [id])
+  diagnosen        Diagnose[]
+  einwilligungen   Einwilligung[]
+  createdAt        DateTime       @default(now())
+
+  @@index([klientId, bereich])
+  @@index([status])
+}
+
+model Termin {
+  id            String   @id @default(cuid())
+  titel         String
+  beginn        DateTime
+  ende          DateTime
+  ort           String?
+  standortId    String
+  standort      Standort @relation(fields: [standortId], references: [id])
+  klientId      String?
+  klient        Klient?  @relation(fields: [klientId], references: [id], onDelete: SetNull)
+  mitarbeiterId String?
+  mitarbeiter   Nutzer?  @relation(fields: [mitarbeiterId], references: [id])
+
+  @@index([standortId, beginn])
+}
+
+model Aufgabe {
+  id            String    @id @default(cuid())
+  text          String
+  faellig       DateTime? @db.Date
+  erledigt      Boolean   @default(false)
+  standortId    String
+  standort      Standort  @relation(fields: [standortId], references: [id])
+  klientId      String?
+  klient        Klient?   @relation(fields: [klientId], references: [id], onDelete: Cascade)
+  zugewiesenId  String?
+  zugewiesen    Nutzer?   @relation(fields: [zugewiesenId], references: [id])
+
+  @@index([standortId, erledigt, faellig])
+}
+
+model Einwilligung {
+  id           String    @id @default(cuid())
+  klientId     String
+  klient       Klient    @relation(fields: [klientId], references: [id], onDelete: Cascade)
+  zweck        String
+  erteiltAm    DateTime  @db.Date
+  gueltigBis   DateTime? @db.Date
+  widerrufenAm DateTime? @db.Date
+  dokumentId   String?
+  dokument     Dokument? @relation(fields: [dokumentId], references: [id])
+
+  @@index([klientId])
+}
+
+// Wird nur ergänzt, nie geändert oder gelöscht (siehe Migration mit Trigger).
+model Zugriffsprotokoll {
+  id        BigInt   @id @default(autoincrement())
+  zeitpunkt DateTime @default(now())
+  nutzerId  String
+  nutzer    Nutzer   @relation(fields: [nutzerId], references: [id])
+  aktion    String   // z. B. "akte.ansehen", "dokument.herunterladen"
+  klientId  String?
+  objekt    String?
+
+  @@index([klientId, zeitpunkt])
+  @@index([nutzerId, zeitpunkt])
+}
