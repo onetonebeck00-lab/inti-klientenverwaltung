@@ -1,0 +1,44 @@
+# Betrieb auf einem eigenen Server: App, Datenbank und HTTPS (Caddy mit Let's Encrypt).
+# Wird von deploy/einrichten.sh gestartet; Werte kommen aus deploy/.env.
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: inti
+      POSTGRES_PASSWORD: ${DB_PASSWORT}
+      POSTGRES_DB: inti
+    volumes:
+      - db-daten:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U inti"]
+      interval: 5s
+      retries: 20
+
+  app:
+    build: ..
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://inti:${DB_PASSWORT}@db:5432/inti
+      SESSION_STUNDEN: "10"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  web:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-daten:/data
+    depends_on:
+      - app
+
+volumes:
+  db-daten:
+  caddy-daten:

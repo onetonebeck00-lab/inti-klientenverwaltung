@@ -21,7 +21,8 @@ const datum = (offset: number) => {
 const iso = (s: string) => new Date(`${s}T00:00:00Z`);
 
 async function main() {
-  if (process.env.NODE_ENV === "production") throw new Error("Testdaten nie in Produktion laden.");
+  // Auf einem Server nur mit ausdrücklicher Freigabe (TESTDATEN=ja), nie mit echten Daten.
+  if (process.env.NODE_ENV === "production" && process.env.TESTDATEN !== "ja") throw new Error("Testdaten nur mit TESTDATEN=ja laden.");
 
   // Reihenfolge wegen Fremdschlüsseln
   await db.$transaction([
